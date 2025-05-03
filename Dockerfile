@@ -1,20 +1,58 @@
-FROM swiftlang/swift:nightly-main-jammy AS builder
+# ================================
+# Build image
+# ================================
+FROM swift:6.0-noble AS build
 
-WORKDIR /app
+# Install jemalloc (optional but good for performance)
+RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+    && apt-get -q update \
+    && apt-get -q dist-upgrade -y \
+    && apt-get install -y libjemalloc-dev
+
+WORKDIR /build
+
+# Cache dependencies
+COPY ./Package.* ./
+RUN swift package resolve $([ -f ./Package.resolved ] && echo "--force-resolved-versions" || true)
+
+# Copy entire project and build the executable
 COPY . .
+RUN swift build -c release \
+    --product KeyGeneratorCC \
+    --static-swift-stdlib \
+    -Xlinker -ljemalloc
 
-# Build the app
-RUN swift build -c release
+# Stage binaries and resources
+WORKDIR /staging
+RUN cp "$(swift build --package-path /build -c release --show-bin-path)/KeyGeneratorCC" ./Run
+RUN cp "/usr/libexec/swift/linux/swift-backtrace-static" ./ || true
+RUN find -L "$(swift build --package-path /build -c release --show-bin-path)/" -regex '.*\.resources$' -exec cp -Ra {} ./ \;
+RUN [ -d /build/Public ] && { mv /build/Public ./Public && chmod -R a-w ./Public; } || true
+RUN [ -d /build/Resources ] && { mv /build/Resources ./Resources && chmod -R a-w ./Resources; } || true
 
-# Find the built binary
-RUN find .build -type f -executable -name KeyGeneratorCC -exec cp {} /usr/local/bin/Run \;
+# ================================
+# Runtime image
+# ================================
+FROM ubuntu:noble
 
-FROM ubuntu:22.04
+RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+    && apt-get -q update \
+    && apt-get -q dist-upgrade -y \
+    && apt-get -q install -y \
+      libjemalloc2 \
+      ca-certificates \
+      tzdata \
+    && rm -r /var/lib/apt/lists/*
 
-# Install needed libs
-RUN apt-get update && apt-get install -y libssl-dev zlib1g-dev && apt-get clean
+RUN useradd --user-group --create-home --system --skel /dev/null --home-dir /app vapor
+WORKDIR /app
 
-# Copy built binary from builder
-COPY --from=builder /usr/local/bin/Run /usr/local/bin/Run
+COPY --from=build --chown=vapor:vapor /staging /app
 
-CMD ["Run"]
+ENV SWIFT_BACKTRACE=enable=yes,sanitize=yes,threads=all,images=all,interactive=no,swift-backtrace=./swift-backtrace-static
+
+USER vapor:vapor
+EXPOSE 8080
+
+ENTRYPOINT ["./Run"]
+CMD ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8080"]
