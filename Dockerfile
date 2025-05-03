@@ -1,5 +1,5 @@
-# Swift build image
-FROM swift:5.9-jammy AS builder
+# Swift 6.0 builder image
+FROM swiftlang/swift:nightly-main-jammy AS builder
 WORKDIR /app
 COPY . .
 RUN swift build -c release
