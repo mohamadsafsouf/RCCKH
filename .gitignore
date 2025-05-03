@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Xcode
+*.xcworkspace
+*.xcuserdata
+*.xcuserstate
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+
+# SwiftPM
+.build/
+Package.resolved
+
+# Derived data
+DerivedData/
+
+# Logs
+*.log
+
+# Docker
+*.dockerignore
+Dockerfile
