@@ -3,43 +3,35 @@
 # ================================
 FROM swift:6.0-noble AS build
 
-# Install OS updates
 RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
     && apt-get -q update \
     && apt-get -q dist-upgrade -y \
     && apt-get install -y libjemalloc-dev
 
-# Set up a build area
 WORKDIR /build
 
-# Copy dependency resolution files and resolve dependencies
 COPY ./Package.* ./
 RUN swift package resolve \
     $([ -f ./Package.resolved ] && echo "--force-resolved-versions" || true)
 
-# Copy rest of project
 COPY . .
 
-# Build your app in release mode (no --product)
+# 🧱 Build the executable
 RUN swift build -c release \
+    --product KeyGeneratorCC \
     --static-swift-stdlib \
     -Xlinker -ljemalloc
 
-# Switch to staging area
 WORKDIR /staging
 
-# Copy the resulting executable (we detect the bin path)
-RUN cp "$(swift build --package-path /build -c release --show-bin-path)"/Run ./
+# ✅ Copy built binary
+RUN cp "$(swift build -c release --show-bin-path)/KeyGeneratorCC" ./KeyGeneratorCC
 
-# Copy static swift backtracer binary
-RUN cp "/usr/libexec/swift/linux/swift-backtrace-static" ./
+# 🔁 Optional: backtrace tool
+RUN cp "/usr/libexec/swift/linux/swift-backtrace-static" ./ || true
 
-# Copy resource bundles if any
-RUN find -L "$(swift build --package-path /build -c release --show-bin-path)/" -regex '.*\.resources$' -exec cp -Ra {} ./ \;
-
-# Optional: Public or Resources folders
-RUN [ -d /build/Public ] && { mv /build/Public ./Public && chmod -R a-w ./Public; } || true
-RUN [ -d /build/Resources ] && { mv /build/Resources ./Resources && chmod -R a-w ./Resources; } || true
+# Optional: Resource bundles
+RUN find -L "$(swift build -c release --show-bin-path)/" -regex '.*\.resources$' -exec cp -Ra {} ./ \;
 
 # ================================
 # Run image
@@ -55,7 +47,6 @@ RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
         tzdata \
     && rm -r /var/lib/apt/lists/*
 
-# Create non-root user
 RUN useradd --user-group --create-home --system --skel /dev/null --home-dir /app vapor
 
 WORKDIR /app
@@ -67,5 +58,5 @@ USER vapor:vapor
 
 EXPOSE 8080
 
-ENTRYPOINT ["./Run"]
+ENTRYPOINT ["./KeyGeneratorCC"]
 CMD ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8080"]
